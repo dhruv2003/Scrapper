@@ -13,7 +13,7 @@ A FastAPI-based application for scraping CPCB (Central Pollution Control Board) 
 
 1. Clone the repository
 ```bash
-git clone <repository-url>
+git clone https://github.com/dhruv2003/Scrapper
 cd scrape
 ```
 
