@@ -1,0 +1,144 @@
+# CPCB Scraper API
+
+A FastAPI-based application for scraping CPCB (Central Pollution Control Board) portals including PWM, BWM, and EWM data with Redis-backed job queuing system.
+
+## Prerequisites
+
+- Python 3.8 or higher
+- Chrome browser installed
+- Redis (automatically downloaded by the application)
+- Access credentials for CPCB portals
+
+## Installation
+
+1. Clone the repository
+```bash
+git clone <repository-url>
+cd scrape
+```
+
+2. Create a virtual environment
+```bash
+python -m venv venv
+source venv/bin/activate  # Linux/Mac
+# or
+venv\Scripts\activate     # Windows
+```
+
+3. Install dependencies
+```bash
+pip install -r requirements.txt
+```
+
+## Configuration
+
+1. Update credentials in `credentials.json` with your CPCB portal login details:
+```json
+{
+    "user@example.com": {
+        "password": "yourpassword",
+        "entity_name": "Your Entity",
+        "plant": "Location",
+        "entity_type": "Producer/Brand Owner",
+        "team_name": "Team Name",
+        "person_name": "Contact Person",
+        "recipient_email": ["email@example.com"]
+    }
+}
+```
+
+## Running the Complete System
+
+### 1. Start Redis Server
+
+Redis is required for the job queue system. Start it with:
+
+```bash
+python start_redis.py
+```
+
+This will automatically download Redis for Windows if needed and start the server. The Redis server will run in a separate console window.
+
+To verify Redis is running properly:
+
+```bash
+python quick_redis_check.py
+```
+
+### 2. Start the FastAPI Server
+
+```bash
+uvicorn app.main:app --reload  # For development
+# or
+uvicorn app.main:app --host 0.0.0.0 --port 8000  # For production
+```
+
+### 3. Start Worker Processes
+
+Workers are needed to process the scraping jobs from the Redis queue:
+
+```bash
+python start_workers.py
+```
+
+You can specify the number of worker processes by passing a number:
+
+```bash
+python start_workers.py 2  # Starts 2 worker processes
+```
+
+## Using the Application
+
+### API Documentation
+
+- Swagger UI: http://localhost:8000/docs
+- ReDoc: http://localhost:8000/redoc
+
+### Authentication
+
+1. Login using the default admin credentials:
+- Username: admin@cpcb.com
+- Password: admin123
+
+2. Use the received JWT token in the Authorization header for subsequent requests
+
+### Queuing Scraping Jobs
+
+There are two ways to start scraping jobs:
+
+1. **Via API endpoints**:
+   - `/cpcb/pwmr?user_email=user@example.com` - for Plastic Waste Management Rules
+   - `/cpcb/bwmr?user_email=user@example.com` - for Bio-Medical Waste Management Rules
+   - `/cpcb/ewmr?user_email=user@example.com` - for E-Waste Management Rules
+   
+   Or alternatively:
+   
+   - POST to `/pwmr/scrape` with JSON body: `{"email": "user@example.com"}`
+
+2. **Using the test script**:
+   ```bash
+   python test_job_queue.py
+   ```
+   This script guides you through the process of queuing and monitoring jobs.
+
+### Monitoring
+
+#### 1. Job Queue Viewer (Web UI)
+
+Open `job_queue_viewer.html` in your browser to see all jobs and their statuses.
+- Login with admin@cpcb.com / admin123
+- Click "Refresh Data" to update the view
+
+#### 2. Live Logs
+
+- Web UI: Open `log_viewer.html` in your browser for real-time logs
+- API: Access the log stream at http://localhost:8000/logs/stream
+- Console: Watch the worker and server console output
+
+#### 3. Queue Status API
+
+- GET `/cpcb/queue` - Shows all queued jobs and their statuses
+- GET `/pwmr/status/{job_id}` - Shows status of a specific job
+- GET `/pwmr/jobs` - Lists all jobs
+
+## System Architecture

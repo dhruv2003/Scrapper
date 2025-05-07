@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>PWMR Scraper - Log Viewer</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            background-color: #1e1e1e;
+            color: #dcdcdc;
+            margin: 20px;
+        }
+        #logs {
+            height: 500px;
+            overflow-y: auto;
+            background-color: #2d2d2d;
+            padding: 10px;
+            border-radius: 5px;
+            white-space: pre-wrap;
+            line-height: 1.5;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        button {
+            background-color: #0e639c;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>PWMR Scraper Logs</h1>
+        <button id="clearBtn">Clear Logs</button>
+    </div>
+    <div id="logs"></div>
+
+    <script>
+        const logsElement = document.getElementById('logs');
+        const clearBtn = document.getElementById('clearBtn');
+        let eventSource;
+
+        function startEventSource() {
+            eventSource = new EventSource('http://localhost:8000/logs/stream');
+
+            eventSource.onmessage = function(event) {
+                const logEntry = document.createElement('div');
+                logEntry.textContent = event.data;
+                
+                // Add color coding based on log content
+                if (event.data.includes('✅')) {
+                    logEntry.style.color = '#4EC9B0'; // green
+                } else if (event.data.includes('❌')) {
+                    logEntry.style.color = '#F44747'; // red
+                } else if (event.data.includes('🚀') || event.data.includes('📋')) {
+                    logEntry.style.color = '#569CD6'; // blue
+                }
+                
+                logsElement.appendChild(logEntry);
+                logsElement.scrollTop = logsElement.scrollHeight;
+            };
+
+            eventSource.onerror = function() {
+                const errorEntry = document.createElement('div');
+                errorEntry.textContent = '❌ Connection to log stream lost. Attempting to reconnect...';
+                errorEntry.style.color = '#F44747';
+                logsElement.appendChild(errorEntry);
+                
+                // Close current connection and attempt to reconnect after a delay
+                eventSource.close();
+                setTimeout(startEventSource, 5000);
+            };
+        }
+
+        clearBtn.addEventListener('click', function() {
+            logsElement.innerHTML = '';
+        });
+
+        // Start the event source when page loads
+        startEventSource();
+    </script>
+</body>
+</html>

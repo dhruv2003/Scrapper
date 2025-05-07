@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+selenium
+beautifulsoup4
+pandas
+openpyxl
+python-jose
+python-multipart>=0.0.5
+webdriver-manager
+pytest
+httpx
+redis

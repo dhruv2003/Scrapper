@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Authentication</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            background-color: #f5f5f5;
+            border-radius: 5px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        input, button {
+            padding: 8px;
+            margin: 5px 0;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        pre {
+            background-color: #f1f1f1;
+            padding: 10px;
+            overflow-x: auto;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Authentication Test</h1>
+    
+    <div class="container">
+        <h2>Login</h2>
+        <div>
+            <label for="username">Username:</label>
+            <input type="text" id="username" value="admin@cpcb.com">
+        </div>
+        <div>
+            <label for="password">Password:</label>
+            <input type="password" id="password" value="admin123">
+        </div>
+        <button onclick="login()">Login</button>
+    </div>
+    
+    <div class="container">
+        <h2>Token</h2>
+        <pre id="token-display">No token yet</pre>
+    </div>
+    
+    <div class="container">
+        <h2>Test Protected Endpoint</h2>
+        <button onclick="testProtected()">Test /pwmr/jobs</button>
+        <pre id="result-display">No result yet</pre>
+    </div>
+    
+    <script>
+        let token = '';
+        const apiBase = 'http://localhost:8000';
+        
+        async function login() {
+            try {
+                const formData = new FormData();
+                formData.append('username', document.getElementById('username').value);
+                formData.append('password', document.getElementById('password').value);
+                
+                const response = await fetch(`${apiBase}/auth/login`, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`Login failed: ${response.status} ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                token = data.access_token;
+                document.getElementById('token-display').textContent = JSON.stringify(data, null, 2);
+                console.log('Login successful!', data);
+            } catch (error) {
+                console.error('Error during login:', error);
+                document.getElementById('token-display').textContent = `Error: ${error.message}`;
+            }
+        }
+        
+        async function testProtected() {
+            try {
+                if (!token) {
+                    throw new Error('No token available. Please login first.');
+                }
+                
+                const response = await fetch(`${apiBase}/pwmr/jobs`, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`API call failed: ${response.status} ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                document.getElementById('result-display').textContent = JSON.stringify(data, null, 2);
+                console.log('API call successful!', data);
+            } catch (error) {
+                console.error('Error during API call:', error);
+                document.getElementById('result-display').textContent = `Error: ${error.message}`;
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Redis Job Queue Viewer</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: #fff;
+            border-radius: 5px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1, h2, h3 {
+            color: #333;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        th, td {
+            padding: 10px;
+            border: 1px solid #ddd;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+            font-weight: bold;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        .status {
+            padding: 5px 10px;
+            border-radius: 3px;
+            font-weight: bold;
+        }
+        .status-queued { background-color: #fff8e1; color: #ff8f00; }
+        .status-processing { background-color: #e3f2fd; color: #1976d2; }
+        .status-completed { background-color: #e8f5e9; color: #388e3c; }
+        .status-failed { background-color: #ffebee; color: #d32f2f; }
+        .refresh-btn {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        .auth-container {
+            display: flex;
+            gap: 10px;
+            align-items: end;
+            margin-bottom: 20px;
+        }
+        input {
+            padding: 8px;
+            margin: 5px 0;
+            width: 300px;
+        }
+        .field-group {
+            display: flex;
+            flex-direction: column;
+        }
+        .timer {
+            display: inline-block;
+            padding: 5px 10px;
+            background-color: #e3f2fd;
+            border-radius: 3px;
+            margin-left: 10px;
+            font-size: 14px;
+        }
+        .auto-refresh {
+            margin-left: 10px;
+            display: inline-flex;
+            align-items: center;
+        }
+    </style>
+</head>
+<body>
+    <h1>Redis Job Queue Viewer</h1>
+    
+    <div class="container">
+        <div class="auth-container">
+            <div class="field-group">
+                <label for="username">Username:</label>
+                <input type="text" id="username" value="admin@cpcb.com">
+            </div>
+            <div class="field-group">
+                <label for="password">Password:</label>
+                <input type="password" id="password" value="admin123">
+            </div>
+            <button onclick="login()" class="refresh-btn">Login</button>
+            <button onclick="checkApiServer()" class="refresh-btn" style="background-color: #2196F3;">Check API Server</button>
+        </div>
+        <p id="auth-status">Not logged in</p>
+    </div>
+    
+    <div class="container">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h2>Job Queue Status <span id="session-timer" class="timer" style="display:none;"></span></h2>
+            <div>
+                <label class="auto-refresh">
+                    <input type="checkbox" id="auto-refresh" onchange="toggleAutoRefresh()">
+                    Auto refresh (30s)
+                </label>
+                <button onclick="fetchJobQueue()" class="refresh-btn">Refresh Data</button>
+            </div>
+        </div>
+        
+        <h3>Queued Jobs (Waiting to be processed)</h3>
+        <div id="queued-jobs">
+            <p>Login to view queued jobs</p>
+        </div>
+        
+        <h3>All Jobs (By Status)</h3>
+        <div id="job-statuses">
+            <p>Login to view job statuses</p>
+        </div>
+    </div>
+    
+    <script>
+        let token = '';
+        const apiBase = 'http://localhost:8000';
+        let autoRefreshInterval = null;
+        let sessionTimer = null;
+        const SESSION_DURATION = 10 * 60 * 1000; // 10 minutes in milliseconds
+        
+        // Check for existing token on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            checkExistingSession();
+        });
+        
+        function checkExistingSession() {
+            const sessionData = JSON.parse(localStorage.getItem('jobQueueSession') || '{}');
+            const currentTime = new Date().getTime();
+            
+            if (sessionData.token && sessionData.expiry && sessionData.expiry > currentTime) {
+                // Valid session exists
+                token = sessionData.token;
+                document.getElementById('auth-status').textContent = 'Logged in (restored session)';
+                document.getElementById('auth-status').style.color = 'green';
+                
+                // Start session timer
+                startSessionTimer(sessionData.expiry);
+                
+                // Get queue data
+                fetchJobQueue();
+            }
+        }
+        
+        function startSessionTimer(expiryTime) {
+            const timerElement = document.getElementById('session-timer');
+            timerElement.style.display = 'inline-block';
+            
+            // Clear any existing timer
+            if (sessionTimer) clearInterval(sessionTimer);
+            
+            // Update timer every second
+            sessionTimer = setInterval(() => {
+                const currentTime = new Date().getTime();
+                const remainingTime = Math.max(0, expiryTime - currentTime);
+                
+                if (remainingTime <= 0) {
+                    // Session expired
+                    clearInterval(sessionTimer);
+                    logout();
+                    return;
+                }
+                
+                // Format remaining time as MM:SS
+                const minutes = Math.floor(remainingTime / 60000);
+                const seconds = Math.floor((remainingTime % 60000) / 1000);
+                timerElement.textContent = `Session: ${minutes}:${seconds.toString().padStart(2, '0')}`;
+                
+                // Warn when less than 1 minute remains
+                if (remainingTime < 60000) {
+                    timerElement.style.backgroundColor = '#ffebee';
+                    timerElement.style.color = '#d32f2f';
+                }
+            }, 1000);
+        }
+        
+        function logout() {
+            token = '';
+            localStorage.removeItem('jobQueueSession');
+            document.getElementById('auth-status').textContent = 'Session expired, please login again';
+            document.getElementById('auth-status').style.color = 'red';
+            document.getElementById('session-timer').style.display = 'none';
+            
+            // Clear auto-refresh
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+                autoRefreshInterval = null;
+                document.getElementById('auto-refresh').checked = false;
+            }
+        }
+        
+        function toggleAutoRefresh() {
+            if (document.getElementById('auto-refresh').checked) {
+                // Start auto-refresh
+                if (autoRefreshInterval) clearInterval(autoRefreshInterval);
+                fetchJobQueue(); // Fetch immediately
+                autoRefreshInterval = setInterval(fetchJobQueue, 30000); // Then every 30 seconds
+            } else {
+                // Stop auto-refresh
+                if (autoRefreshInterval) {
+                    clearInterval(autoRefreshInterval);
+                    autoRefreshInterval = null;
+                }
+            }
+        }
+        
+        async function login() {
+            const statusDiv = document.getElementById('auth-status');
+            statusDiv.textContent = "Logging in...";
+            statusDiv.style.color = "blue";
+            
+            try {
+                const username = document.getElementById('username').value;
+                const password = document.getElementById('password').value;
+                
+                if (!username || !password) {
+                    throw new Error("Username and password are required");
+                }
+                
+                console.log(`Attempting login with username: ${username}`);
+                
+                const formData = new FormData();
+                formData.append('username', username);
+                formData.append('password', password);
+                
+                console.log("Sending login request...");
+                
+                const response = await fetch(`${apiBase}/auth/login`, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                console.log(`Login response status: ${response.status} ${response.statusText}`);
+                
+                const responseText = await response.text();
+                console.log("Raw response:", responseText);
+                
+                if (!response.ok) {
+                    throw new Error(`Login failed with status ${response.status}: ${responseText}`);
+                }
+                
+                // Try to parse the response as JSON
+                let data;
+                try {
+                    data = JSON.parse(responseText);
+                    console.log("Parsed response data:", data);
+                } catch (e) {
+                    throw new Error(`Invalid JSON in response: ${responseText}`);
+                }
+                
+                if (!data.access_token) {
+                    throw new Error(`No access_token in response: ${JSON.stringify(data)}`);
+                }
+                
+                token = data.access_token;
+                
+                // Save token with expiry time (10 minutes from now)
+                const expiryTime = new Date().getTime() + SESSION_DURATION;
+                localStorage.setItem('jobQueueSession', JSON.stringify({
+                    token: token,
+                    expiry: expiryTime
+                }));
+                
+                // Update UI
+                statusDiv.textContent = 'Logged in successfully';
+                statusDiv.style.color = 'green';
+                
+                // Start session timer
+                startSessionTimer(expiryTime);
+                
+                // Fetch job queue data after successful login
+                fetchJobQueue();
+                
+            } catch (error) {
+                console.error('Error during login:', error);
+                statusDiv.innerHTML = `❌ Login error: ${error.message}`;
+                statusDiv.style.color = 'red';
+            }
+        }
+        
+        async function fetchJobQueue() {
+            try {
+                if (!token) {
+                    alert('Please login first');
+                    return;
+                }
+                
+                // Check if token is still valid
+                const sessionData = JSON.parse(localStorage.getItem('jobQueueSession') || '{}');
+                if (!sessionData.expiry || sessionData.expiry < new Date().getTime()) {
+                    logout();
+                    alert('Your session has expired. Please login again.');
+                    return;
+                }
+                
+                const response = await fetch(`${apiBase}/cpcb/queue`, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                
+                if (!response.ok) {
+                    // If unauthorized, session might have expired
+                    if (response.status === 401) {
+                        logout();
+                        throw new Error('Session expired. Please login again.');
+                    }
+                    throw new Error(`API call failed: ${response.status} ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                displayQueuedJobs(data.queued_jobs);
+                displayJobStatuses(data.job_statuses);
+                console.log('Job queue data:', data);
+            } catch (error) {
+                console.error('Error fetching job queue:', error);
+                document.getElementById('queued-jobs').innerHTML = `<p style="color: red">Error: ${error.message}</p>`;
+                document.getElementById('job-statuses').innerHTML = `<p style="color: red">Error: ${error.message}</p>`;
+            }
+        }
+        
+        function displayQueuedJobs(queuedJobs) {
+            const container = document.getElementById('queued-jobs');
+            
+            if (queuedJobs.count === 0) {
+                container.innerHTML = '<p>No jobs currently in queue</p>';
+                return;
+            }
+            
+            let html = `<p>Total jobs in queue: ${queuedJobs.count}</p>`;
+            html += '<table>';
+            html += `
+                <tr>
+                    <th>Job ID</th>
+                    <th>Email</th>
+                    <th>Entity Name</th>
+                    <th>Queued At</th>
+                </tr>
+            `;
+            
+            queuedJobs.jobs.forEach(job => {
+                html += `
+                    <tr>
+                        <td>${job.job_id}</td>
+                        <td>${job.email}</td>
+                        <td>${job.entity_name}</td>
+                        <td>${job.queued_at}</td>
+                    </tr>
+                `;
+            });
+            
+            html += '</table>';
+            container.innerHTML = html;
+        }
+        
+        function displayJobStatuses(jobStatuses) {
+            const container = document.getElementById('job-statuses');
+            
+            if (jobStatuses.count === 0) {
+                container.innerHTML = '<p>No job statuses found</p>';
+                return;
+            }
+            
+            let html = `<p>Total jobs: ${jobStatuses.count}</p>`;
+            html += '<table>';
+            html += `
+                <tr>
+                    <th>Job ID</th>
+                    <th>Email</th>
+                    <th>Status</th>
+                    <th>Entity Name</th>
+                    <th>Message</th>
+                    <th>Created At</th>
+                    <th>Updated At</th>
+                </tr>
+            `;
+            
+            // Sort jobs: processing first, then queued, then completed, then failed
+            const sortOrder = { "processing": 0, "queued": 1, "completed": 2, "failed": 3 };
+            const sortedJobs = [...jobStatuses.jobs].sort((a, b) => {
+                return (sortOrder[a.status] || 99) - (sortOrder[b.status] || 99);
+            });
+            
+            sortedJobs.forEach(job => {
+                const statusClass = `status-${job.status}`;
+                let createdAt = '';
+                let updatedAt = '';
+                try {
+                    if (job.created_at) {
+                        const createdAtObj = JSON.parse(job.created_at);
+                        createdAt = createdAtObj.timestamp || ''; 
+                    }
+                } catch(e) {
+                    createdAt = job.created_at || '';
+                }
+                try {
+                    if (job.updated_at) {
+                        const updatedAtObj = JSON.parse(job.updated_at);
+                        updatedAt = updatedAtObj.timestamp || '';
+                    }
+                } catch(e) {
+                    updatedAt = job.updated_at || '';
+                }
+                
+                html += `
+                    <tr>
+                        <td>${job.job_id}</td>
+                        <td>${job.email || ''}</td>
+                        <td><span class="status ${statusClass}">${job.status || ''}</span></td>
+                        <td>${job.entity_name || ''}</td>
+                        <td>${job.message || ''}</td>
+                        <td>${createdAt}</td>
+                        <td>${updatedAt}</td>
+                    </tr>
+                `;
+            });
+            
+            html += '</table>';
+            container.innerHTML = html;
+        }
+        
+        // Debug functions to help diagnose login issues
+        async function checkApiServer() {
+            const statusDiv = document.getElementById('auth-status');
+            statusDiv.textContent = "Checking API server...";
+            statusDiv.style.color = "blue";
+            
+            try {
+                // First try a simpler endpoint that doesn't require auth
+                const response = await fetch(`${apiBase}/`, {
+                    method: 'GET'
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    statusDiv.innerHTML = `✅ API server is running at ${apiBase}<br>Response: ${JSON.stringify(data)}`;
+                    statusDiv.style.color = "green";
+                } else {
+                    statusDiv.innerHTML = `❌ API server returned status ${response.status} ${response.statusText}`;
+                    statusDiv.style.color = "red";
+                }
+            } catch (error) {
+                statusDiv.innerHTML = `❌ Cannot connect to API server at ${apiBase}<br>Error: ${error.message}<br><br>Possible issues:<br>1. API server not running<br>2. Incorrect API URL<br>3. CORS issues`;
+                statusDiv.style.color = "red";
+                console.error("API server connection error:", error);
+            }
+        }
+    </script>
+</body>
+</html>
