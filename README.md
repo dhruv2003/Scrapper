@@ -142,3 +142,65 @@ Open `job_queue_viewer.html` in your browser to see all jobs and their statuses.
 - GET `/pwmr/jobs` - Lists all jobs
 
 ## System Architecture
+
+The application uses a distributed architecture with the following components:
+
+### Core Components
+1. **FastAPI Server**
+   - Provides REST API endpoints for job submission and monitoring
+   - Handles authentication and authorization
+   - Exposes Swagger documentation
+
+2. **Redis Queue**
+   - Central job queue for storing pending scraping tasks
+   - Maintains job statuses and results
+   - Enables communication between API and workers
+
+3. **Worker Processes**
+   - Multiple independent processes consuming jobs from the queue
+   - Each worker handles one scraping job at a time
+   - Implements retry logic for failed jobs
+
+4. **Selenium Scraper Engine**
+   - Handles browser automation for data extraction
+   - Manages Chrome WebDriver sessions
+   - Implements portal-specific scraping logic
+
+### Data Flow
+1. Client submits scraping request via API
+2. API validates request and adds job to Redis queue
+3. Available worker picks up job from queue
+4. Worker executes scraping task and updates job status
+5. Client retrieves results via API or web interface
+
+### Monitoring System
+- Real-time log streaming
+- Web-based job queue monitoring
+- Job status tracking and reporting
+
+### Security
+- JWT-based authentication
+- Secure credential storage
+- Rate limiting on API endpoints
+
+```
+                 ┌─────────────────┐
+                 │                 │
+  ┌─────────────▶│  FastAPI Server │◀────────┐
+  │              │                 │         │
+  │              └────────┬────────┘         │
+  │                       │                  │
+  │                       ▼                  │
+  │              ┌─────────────────┐         │
+  │              │                 │         │
+  │  Client      │   Redis Queue   │         │  API Requests
+  │  Requests    │                 │         │
+  │              └────────┬────────┘         │
+  │                       │                  │
+  │                       ▼                  │
+  │              ┌─────────────────┐         │
+  │              │  Worker Pool    │         │
+  └──────────────┤  (Selenium)     ├─────────┘
+                 │                 │
+                 └─────────────────┘
+```
