@@ -87,6 +87,27 @@ You can specify the number of worker processes by passing a number:
 python start_workers.py 2  # Starts 2 worker processes
 ```
 
+### 4. Redis Maintenance
+
+The Redis maintenance script helps you manage your Redis database:
+
+```bash
+# Run maintenance in a loop (cleans up failed jobs older than 5 minutes)
+python redis_maintenance.py
+
+# Clear all transactions and jobs from Redis
+python redis_maintenance.py --clear-all
+
+# Clean up failed jobs with custom age threshold
+python redis_maintenance.py --clean-failed --age 10
+```
+
+Available options:
+- `--clear-all`: Removes all jobs and transactions from Redis database
+- `--clean-failed`: Performs a one-time cleanup of failed jobs
+- `--age N`: Sets the age threshold in minutes (default: 5)
+- `--loop`: Runs the maintenance process in a continuous loop (default behavior)
+
 ## Using the Application
 
 ### API Documentation
