@@ -6,7 +6,7 @@ A FastAPI-based application for scraping CPCB (Central Pollution Control Board) 
 
 - Python 3.8 or higher
 - Chrome browser installed
-- Redis (automatically downloaded by the application)
+- Redis (automatically downloaded and configured by the application)
 - Access credentials for CPCB portals
 
 ## Installation
@@ -51,13 +51,13 @@ pip install -r requirements.txt
 
 ### 1. Start Redis Server
 
-Redis is required for the job queue system. Start it with:
+Redis is required for the job queue system. The application will automatically download and configure Redis for your operating system:
 
 ```bash
 python start_redis.py
 ```
 
-This will automatically download Redis for Windows if needed and start the server. The Redis server will run in a separate console window.
+This will download Redis if needed (supports Windows, macOS, and Linux) and start the server. The Redis server will run in a separate console window.
 
 To verify Redis is running properly:
 

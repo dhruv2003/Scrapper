@@ -1,7 +1,7 @@
 """
 Redis Server Launcher
 
-This script helps start a Redis server instance on Windows.
+This script helps start a Redis server instance on Windows or Linux/Mac.
 It will download Redis if needed, making it easier to get started.
 """
 
@@ -14,11 +14,23 @@ import urllib.request
 from pathlib import Path
 import shutil
 import tempfile
+import platform
+import tarfile
 
+# Detect operating system
+PLATFORM = platform.system().lower()
+IS_WINDOWS = PLATFORM == "windows"
+IS_LINUX = PLATFORM == "linux"
+IS_MAC = PLATFORM == "darwin"
+
+# URLs for Redis downloads
 REDIS_WINDOWS_URL = "https://github.com/tporadowski/redis/releases/download/v5.0.14.1/Redis-x64-5.0.14.1.zip"
+REDIS_LINUX_URL = "https://download.redis.io/releases/redis-7.0.8.tar.gz"
+
+# Setup Redis directory
 REDIS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "redis")
 
-def download_redis():
+def download_redis_windows():
     """Download Redis for Windows if not already present"""
     print("📥 Downloading Redis for Windows...")
     
@@ -44,25 +56,135 @@ def download_redis():
     
     print("✅ Redis downloaded successfully")
 
+def download_redis_linux():
+    """Download and compile Redis for Linux"""
+    print("📥 Downloading Redis for Linux...")
+    
+    # Create temp directory
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Download Redis tarball
+        tar_path = os.path.join(temp_dir, "redis.tar.gz")
+        urllib.request.urlretrieve(REDIS_LINUX_URL, tar_path)
+        
+        # Extract tarball
+        with tarfile.open(tar_path, 'r:gz') as tar_ref:
+            tar_ref.extractall(temp_dir)
+        
+        # Find the extracted directory
+        extracted_dir = None
+        for item in os.listdir(temp_dir):
+            if os.path.isdir(os.path.join(temp_dir, item)) and item.startswith('redis-'):
+                extracted_dir = os.path.join(temp_dir, item)
+                break
+        
+        if not extracted_dir:
+            print("⚠️ Failed to find extracted Redis directory")
+            return False
+        
+        # Compile Redis
+        print("🔧 Compiling Redis (this may take a few minutes)...")
+        compile_process = subprocess.run(
+            ["make"],
+            cwd=extracted_dir,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+        
+        if compile_process.returncode != 0:
+            print(f"⚠️ Redis compilation failed: {compile_process.stderr.decode('utf-8')}")
+            return False
+        
+        # Create redis directory in our app if it doesn't exist
+        os.makedirs(REDIS_DIR, exist_ok=True)
+        
+        # Copy required files
+        redis_files = ["src/redis-server", "src/redis-cli", "redis.conf"]
+        for file in redis_files:
+            src = os.path.join(extracted_dir, file)
+            if os.path.exists(src):
+                dest_filename = os.path.basename(file)
+                shutil.copy2(src, os.path.join(REDIS_DIR, dest_filename))
+    
+    print("✅ Redis compiled and installed successfully")
+    return True
+
+def check_system_redis():
+    """Check if Redis is installed system-wide"""
+    try:
+        result = subprocess.run(
+            ["which", "redis-server"] if not IS_WINDOWS else ["where", "redis-server"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
 def start_redis_server():
     """Start Redis server"""
-    redis_path = os.path.join(REDIS_DIR, "redis-server.exe")
+    # Determine Redis server path
+    if IS_WINDOWS:
+        redis_path = os.path.join(REDIS_DIR, "redis-server.exe")
+        redis_cli_path = os.path.join(REDIS_DIR, "redis-cli.exe")
+    else:
+        # Try local installation first
+        redis_path = os.path.join(REDIS_DIR, "redis-server")
+        redis_cli_path = os.path.join(REDIS_DIR, "redis-cli")
+        
+        # If not available, check system installation
+        if not os.path.exists(redis_path):
+            if check_system_redis():
+                redis_path = "redis-server"
+                redis_cli_path = "redis-cli"
     
-    if not os.path.exists(redis_path):
+    # Download if needed
+    if not os.path.exists(redis_path) and redis_path != "redis-server":
         print("⚠️ Redis server not found. Downloading...")
-        download_redis()
+        if IS_WINDOWS:
+            download_redis_windows()
+        elif IS_LINUX:
+            if not download_redis_linux():
+                print("⚠️ Redis download failed. Please install Redis manually.")
+                print("   For Ubuntu/Debian: sudo apt-get install redis-server")
+                print("   For RHEL/CentOS: sudo yum install redis")
+                sys.exit(1)
     
     print("🚀 Starting Redis server...")
     
-    # Start Redis server
-    redis_process = subprocess.Popen(
-        [redis_path], 
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        creationflags=subprocess.CREATE_NEW_CONSOLE  # Open in new console window
-    )
-    
-    print("✅ Redis server started in a new console window")
+    try:
+        # Start Redis server with appropriate platform-specific options
+        if IS_WINDOWS:
+            redis_process = subprocess.Popen(
+                [redis_path], 
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                creationflags=subprocess.CREATE_NEW_CONSOLE  # Windows-specific flag
+            )
+            print("✅ Redis server started in a new console window")
+        else:
+            # For Linux/Mac, run in background with output redirected to log file
+            redis_log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "redis.log")
+            
+            if redis_path == "redis-server":
+                # System-wide Redis
+                redis_process = subprocess.Popen(
+                    ["redis-server", "--daemonize", "yes"],
+                    stdout=open(redis_log_path, "w"),
+                    stderr=subprocess.STDOUT
+                )
+                print(f"✅ System Redis server started in background (log: {redis_log_path})")
+            else:
+                # Local Redis
+                redis_process = subprocess.Popen(
+                    [redis_path],
+                    stdout=open(redis_log_path, "w"),
+                    stderr=subprocess.STDOUT
+                )
+                print(f"✅ Redis server started in background (log: {redis_log_path})")
+                
+    except Exception as e:
+        print(f"⚠️ Failed to start Redis server: {e}")
+        sys.exit(1)
     
     # Start the Redis maintenance script in background
     maintenance_script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "redis_maintenance.py")
@@ -196,37 +318,62 @@ if __name__ == "__main__":
     # Start the maintenance script
     try:
         print("🧹 Starting Redis maintenance process for auto-cleanup...")
-        maintenance_process = subprocess.Popen(
-            [sys.executable, maintenance_script_path],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            creationflags=subprocess.CREATE_NEW_CONSOLE  # Open in new console window
-        )
+        
+        # Start process with appropriate flags based on platform
+        if IS_WINDOWS:
+            maintenance_process = subprocess.Popen(
+                [sys.executable, maintenance_script_path],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                creationflags=subprocess.CREATE_NEW_CONSOLE  # Windows-specific flag
+            )
+        else:
+            # For Linux/Mac, run in background with output redirected to log file
+            maintenance_log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "redis_maintenance.log")
+            maintenance_process = subprocess.Popen(
+                [sys.executable, maintenance_script_path],
+                stdout=open(maintenance_log_path, "w"),
+                stderr=subprocess.STDOUT
+            )
+        
         print("✅ Redis maintenance process started")
     except Exception as e:
         print(f"⚠️ Failed to start maintenance process: {e}")
     
-    print("ℹ️ Close the Redis console window to stop the Redis server")
+    if IS_WINDOWS:
+        print("ℹ️ Close the Redis console window to stop the Redis server")
+    else:
+        print("ℹ️ To stop Redis server later, run: pkill redis-server")
     
     # Check if Redis is running by trying to connect with redis-cli
-    redis_cli_path = os.path.join(REDIS_DIR, "redis-cli.exe")
-    if os.path.exists(redis_cli_path):
-        try:
-            result = subprocess.run(
-                [redis_cli_path, "ping"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                timeout=5
-            )
-            if b"PONG" in result.stdout:
-                print("✅ Redis server is responding to connections")
+    try:
+        if IS_WINDOWS and os.path.exists(redis_cli_path):
+            cli_command = [redis_cli_path, "ping"]
+        else:
+            if redis_cli_path == "redis-cli":
+                cli_command = ["redis-cli", "ping"]
+            elif os.path.exists(redis_cli_path):
+                cli_command = [redis_cli_path, "ping"]
             else:
-                print("⚠️ Redis server may not be running properly")
-                print(f"Output: {result.stdout.decode('utf-8')}")
-        except subprocess.TimeoutExpired:
-            print("⚠️ Redis server is not responding")
-        except Exception as e:
-            print(f"⚠️ Error checking Redis: {e}")
+                print("⚠️ Redis CLI not found, skipping connection test")
+                return
+        
+        result = subprocess.run(
+            cli_command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=5
+        )
+        
+        if b"PONG" in result.stdout:
+            print("✅ Redis server is responding to connections")
+        else:
+            print("⚠️ Redis server may not be running properly")
+            print(f"Output: {result.stdout.decode('utf-8')}")
+    except subprocess.TimeoutExpired:
+        print("⚠️ Redis server is not responding")
+    except Exception as e:
+        print(f"⚠️ Error checking Redis: {e}")
 
 if __name__ == "__main__":
     start_redis_server()
@@ -240,4 +387,4 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         pass
     
-    print("Script exited. Redis server is still running in the other console window.")
+    print("Script exited. Redis server is still running in the background.")
