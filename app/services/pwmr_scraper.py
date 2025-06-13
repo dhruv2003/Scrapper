@@ -16,6 +16,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 from selenium.common.exceptions import WebDriverException
 
 from app.services.utils import log
+from app.services.mongo_utils import save_to_mongodb  # Import the MongoDB utility
 
 # --- SQLAlchemy imports ---
 from sqlalchemy.orm import Session
@@ -70,17 +71,49 @@ def load_credentials():
     return creds
 
 
+def save_excel(data_dict, email=None, entity_name=None):
+    """
+    Save the scraped DataFrames to an Excel file
+    """
+    try:
+        now = datetime.now()
+        os.makedirs("scraped_data", exist_ok=True)
+        
+        # Create a filename with entity name if available
+        if entity_name:
+            safe_entity_name = "".join(c if c.isalnum() else "_" for c in entity_name)
+            filename = f"scraped_data/PWM_{safe_entity_name}_{now.strftime('%Y%m%d_%H%M%S')}.xlsx"
+        else:
+            email_prefix = email.split('@')[0] if email else "unknown"
+            filename = f"scraped_data/PWM_{email_prefix}_{now.strftime('%Y%m%d_%H%M%S')}.xlsx"
+        
+        # Write each DataFrame to a different sheet
+        with pd.ExcelWriter(filename, engine='openpyxl') as writer:
+            for sheet_name, df in data_dict.items():
+                if isinstance(df, pd.DataFrame) and not df.empty:
+                    df.to_excel(writer, sheet_name=sheet_name.capitalize(), index=False)
+        
+        log(f"📊 Excel saved: {filename}")
+        return filename
+    except Exception as e:
+        log(f"❌ Error saving Excel: {e}")
+        return None
+
+
 def start_scraper(cred: dict) -> dict:
     """
     1) Performs login + manual captcha/OTP wait.
     2) Scrapes each section into a pandas.DataFrame.
     3) Persists the `next_target` section into database.
-    4) Returns dict of all DataFrames plus `job_id`.
+    4) Saves all DataFrames to MongoDB.
+    5) Saves all DataFrames to Excel.
+    6) Returns dict of all DataFrames plus `job_id`.
     """
     results = {}
     db_gen = get_db()
     db: Session = next(db_gen)
     job_id = None
+    driver = None
 
     try:
         # 1️⃣ Create job record before scraping
@@ -117,7 +150,7 @@ def start_scraper(cred: dict) -> dict:
         # 3️⃣ Scrape
         all_sections = scrape_all(driver, email)
 
-        # 4️⃣ Persist Next Target
+        # 4️⃣ Persist Next Target to SQL database
         df_next = all_sections.get("next_target", pd.DataFrame())
         if not df_next.empty:
             save_next_targets(db, job_id, df_next)
@@ -125,7 +158,36 @@ def start_scraper(cred: dict) -> dict:
         else:
             log("ℹ️ No next_target data to save.")
 
-        # 5️⃣ Return job_id plus all DataFrames
+        # 5️⃣ Save all data to MongoDB
+        entity_name = cred.get("entity_name") or (
+            all_sections.get("procurement", pd.DataFrame()).get("Entity_Name", [None])[0]
+            if not all_sections.get("procurement", pd.DataFrame()).empty
+            else None
+        )
+        entity_type = cred.get("entity_type") or (
+            all_sections.get("procurement", pd.DataFrame()).get("Type_of_entity", [None])[0]
+            if not all_sections.get("procurement", pd.DataFrame()).empty 
+            else None
+        )
+        
+        # Get current year or override from credentials if provided
+        year = cred.get("year", datetime.now().year)
+        
+        mongo_result = save_to_mongodb(
+            data_dict=all_sections,
+            email=email,
+            company_name=entity_name,
+            entity_type=entity_type,
+            year=year
+        )
+        log(f"📦 MongoDB: {mongo_result}")
+        
+        # 6️⃣ Save to Excel file
+        excel_file = save_excel(all_sections, email, entity_name)
+        if excel_file:
+            results["excel_file"] = excel_file
+
+        # 7️⃣ Return job_id plus all DataFrames
         results = {"job_id": job_id, **all_sections}
         return results
 
@@ -137,10 +199,11 @@ def start_scraper(cred: dict) -> dict:
 
     finally:
         # Clean up
-        try:
-            driver.quit()
-        except:
-            pass
+        if driver:
+            try:
+                driver.quit()
+            except:
+                pass
 
         # Close DB generator
         try:

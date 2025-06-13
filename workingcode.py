@@ -80,7 +80,7 @@ def scrape_all(driver, email):
     df_target = scrape_target(driver, entity_type, entity_name, email)
     df_annual, df_compliance, df_next_target = scrape_annual(driver, entity_type, entity_name, email)
 
-    save_excel(df_procurement, df_sales, df_wallet, df_target, df_annual, df_compliance, df_next_target)
+    filename = save_excel(df_procurement, df_sales, df_wallet, df_target, df_annual, df_compliance, df_next_target)
 
     try:
         logout(driver)
@@ -88,6 +88,8 @@ def scrape_all(driver, email):
         pass
 
     driver.quit()
+
+    return filename
 
 def save_excel(df_procurement, df_sales, df_wallet, df_target, df_annual, df_compliance, df_next_target):
     now = datetime.now()
@@ -104,6 +106,7 @@ def save_excel(df_procurement, df_sales, df_wallet, df_target, df_annual, df_com
         df_next_target.to_excel(writer, sheet_name='Next_Target', index=False)
 
     log(f"✅ Excel Saved: {filename}")
+    return filename
 
 def scrape_procurement(driver, entity_type, entity_name, email):
     log("📦 Fetching Procurement Data...")

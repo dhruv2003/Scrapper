@@ -225,3 +225,56 @@ The application uses a distributed architecture with the following components:
                  │                 │
                  └─────────────────┘
 ```
+
+# MongoDB Scraper Project
+
+## Installation
+
+When you encounter pip installation issues like:
+
+```
+ImportError: cannot import name 'RequirementInformation' from 'pip._vendor.resolvelib.structs'
+```
+
+This means your virtual environment is corrupted. Follow these steps to fix it:
+
+### Method 1: Using the setup script
+
+1. Run the setup script:
+   ```
+   python setup.py
+   ```
+
+2. Activate the new virtual environment:
+   - Windows: `venv\Scripts\activate`
+   - Unix/Mac: `source venv/bin/activate`
+
+### Method 2: Manual setup
+
+1. Delete the existing virtual environment:
+   - Windows: `rmdir /s /q venv`
+   - Unix/Mac: `rm -rf venv`
+
+2. Create a new virtual environment:
+   ```
+   python -m venv venv
+   ```
+
+3. Activate the virtual environment:
+   - Windows: `venv\Scripts\activate`
+   - Unix/Mac: `source venv/bin/activate`
+
+4. Install pymongo:
+   ```
+   python -m pip install --upgrade pip
+   python -m pip install pymongo
+   ```
+
+5. Install other requirements:
+   ```
+   python -m pip install -r requirements.txt
+   ```
+
+## Usage
+
+Once your environment is set up, you can use the MongoDB connection utilities to interact with your database.
