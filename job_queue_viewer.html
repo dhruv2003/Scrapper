@@ -227,17 +227,62 @@
         }
         
         function logout() {
+            // Clear token and session data
             token = '';
             localStorage.removeItem('jobQueueSession');
-            document.getElementById('auth-status').textContent = 'Session expired, please login again';
-            document.getElementById('auth-status').style.color = 'red';
+            
+            // Update UI
+            document.getElementById('auth-status').textContent = 'Logged out successfully';
+            document.getElementById('auth-status').style.color = 'blue';
             document.getElementById('session-timer').style.display = 'none';
+            
+            // Clear job data displays
+            document.getElementById('active-processes').innerHTML = '<p class="no-processes">Not logged in - no data to display</p>';
+            document.getElementById('queued-jobs').innerHTML = '<p>Not logged in - no data to display</p>';
+            document.getElementById('job-statuses').innerHTML = '<p>Not logged in - no data to display</p>';
             
             // Clear auto-refresh
             if (autoRefreshInterval) {
                 clearInterval(autoRefreshInterval);
                 autoRefreshInterval = null;
                 document.getElementById('auto-refresh').checked = false;
+            }
+            
+            // Clear session timer
+            if (sessionTimer) {
+                clearInterval(sessionTimer);
+                sessionTimer = null;
+            }
+        }
+        
+        // Add a server-side logout function that actually logs out from the API
+        async function serverLogout() {
+            try {
+                if (!token) {
+                    logout(); // Just do client-side logout if no token
+                    return;
+                }
+                
+                // Call the server logout endpoint
+                const response = await fetch(`${apiBase}/auth/logout`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                
+                // Always clear the local session regardless of server response
+                logout();
+                
+                if (!response.ok) {
+                    console.warn(`Server logout returned status ${response.status}`);
+                } else {
+                    console.log("Server logout successful");
+                }
+            } catch (error) {
+                console.error('Error during server logout:', error);
+                // Still perform client-side logout
+                logout();
             }
         }
         
